@@ -27,6 +27,9 @@
         <input id="newHaremName" type="text" placeholder="Nome do dono / harém">
         <button id="addHaremBtn" class="primary">Novo harém</button>
         <button id="renameHaremBtn">Renomear atual</button>
+        <button id="exportHaremBtn">Exportar harém atual</button>
+        <button id="importHaremBtn">Importar harém compartilhado</button>
+        <input id="importHaremFile" type="file" accept="application/json" hidden>
       </div>
       <div id="currentHaremInfo" class="muted small"></div>
     </section>

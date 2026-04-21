@@ -62,6 +62,99 @@ function createEmptyHarem(name = 'Meu Harém') {
   };
 }
 
+function makeUniqueHaremName(baseName) {
+  const safeBase = String(baseName || 'Harém compartilhado').trim() || 'Harém compartilhado';
+  const existingNames = new Set((state.db?.harems || []).map((harem) => String(harem.name || '').toLowerCase()));
+  if (!existingNames.has(safeBase.toLowerCase())) return safeBase;
+  let index = 2;
+  while (existingNames.has(`${safeBase} (${index})`.toLowerCase())) index += 1;
+  return `${safeBase} (${index})`;
+}
+
+function normalizeImportedHarem(rawHarem, fallbackName = 'Harém compartilhado') {
+  const base = createEmptyHarem(rawHarem?.name || rawHarem?.ownerName || fallbackName);
+  base.id = uid();
+  base.name = makeUniqueHaremName(rawHarem?.name || rawHarem?.ownerName || fallbackName);
+  base.ownerName = rawHarem?.ownerName || rawHarem?.name || base.name;
+  ensureLists(base);
+  base.lists = {
+    wishlist: Array.isArray(rawHarem?.lists?.wishlist) ? [...new Set(rawHarem.lists.wishlist.map(String))].sort((a,b)=>a.localeCompare(b,'pt-BR')) : [],
+    likelist: Array.isArray(rawHarem?.lists?.likelist) ? [...new Set(rawHarem.lists.likelist.map(String))].sort((a,b)=>a.localeCompare(b,'pt-BR')) : [],
+    whitelist: Array.isArray(rawHarem?.lists?.whitelist) ? [...new Set(rawHarem.lists.whitelist.map(String))].sort((a,b)=>a.localeCompare(b,'pt-BR')) : [],
+    blacklist: Array.isArray(rawHarem?.lists?.blacklist) ? [...new Set(rawHarem.lists.blacklist.map(String))].sort((a,b)=>a.localeCompare(b,'pt-BR')) : [],
+  };
+  base.characters = Array.isArray(rawHarem?.characters)
+    ? rawHarem.characters.map((character, index) => prepareCharacter({ ...character, id: uid(), position: index + 1 }))
+    : [];
+  base.trash = Array.isArray(rawHarem?.trash)
+    ? rawHarem.trash.map((character, index) => ({ ...prepareCharacter({ ...character, id: uid(), position: index + 1 }), trashedAt: character.trashedAt || new Date().toISOString() }))
+    : [];
+  base.createdAt = rawHarem?.createdAt || new Date().toISOString();
+  base.updatedAt = new Date().toISOString();
+  return base;
+}
+
+function exportCurrentHarem() {
+  const harem = currentHarem();
+  if (!harem) return;
+  const payload = {
+    type: 'mudae-manager-harem-share',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    appVersion: state.db?.meta?.version || 2,
+    harem: clone(harem),
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  const filenameBase = String(harem.name || 'harem').toLowerCase().replace(/[^a-z0-9-_]+/gi, '-').replace(/^-+|-+$/g, '') || 'harem';
+  anchor.href = url;
+  anchor.download = `${filenameBase}-share.json`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+  setCommandOutput(`Harém exportado com sucesso: ${anchor.download}`);
+}
+
+function importSharedHaremsFromObject(data) {
+  const importedHarems = [];
+  if (data?.type === 'mudae-manager-harem-share' && data?.harem) {
+    importedHarems.push(normalizeImportedHarem(data.harem, data.harem?.name || 'Harém compartilhado'));
+  } else if (Array.isArray(data?.harems)) {
+    data.harems.forEach((harem, index) => importedHarems.push(normalizeImportedHarem(harem, `Harém compartilhado ${index + 1}`)));
+  } else if (data && typeof data === 'object' && Array.isArray(data.characters)) {
+    importedHarems.push(normalizeImportedHarem(data, data.name || data.ownerName || 'Harém compartilhado'));
+  }
+  return importedHarems;
+}
+
+function handleSharedHaremFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(String(reader.result || '{}'));
+      const importedHarems = importSharedHaremsFromObject(data);
+      if (!importedHarems.length) {
+        state.issues.unshift(makeIssue('error', 'O arquivo JSON não contém um harém compartilhável válido.'));
+        renderIssues();
+        return;
+      }
+      importedHarems.forEach((harem) => state.db.harems.push(harem));
+      state.db.meta.currentHaremId = importedHarems[0].id;
+      normalizeDb();
+      renderAll();
+      setCommandOutput(`${importedHarems.length} harém(ns) importado(s) com sucesso. Agora você pode compartilhar bancos entre amigos por arquivo JSON.`);
+    } catch (error) {
+      state.issues.unshift(makeIssue('error', `Falha ao importar harém compartilhado: ${error.message}`));
+      renderIssues();
+    } finally {
+      const input = qs('#importHaremFile');
+      if (input) input.value = '';
+    }
+  };
+  reader.readAsText(file);
+}
+
 function sanitizeLines(raw) {
   const ignored = [
     /^imagem$/i,
@@ -1076,6 +1169,9 @@ function bindEvents() {
   });
   qs('#addHaremBtn').addEventListener('click', addHarem);
   qs('#renameHaremBtn').addEventListener('click', renameCurrentHarem);
+  qs('#exportHaremBtn').addEventListener('click', exportCurrentHarem);
+  qs('#importHaremBtn').addEventListener('click', () => qs('#importHaremFile').click());
+  qs('#importHaremFile').addEventListener('change', (event) => handleSharedHaremFile(event.target.files?.[0] || null));
 
   qs('#importMergeBtn').addEventListener('click', () => analyzeImport(false));
   qs('#importReplaceBtn').addEventListener('click', () => analyzeImport(true));
