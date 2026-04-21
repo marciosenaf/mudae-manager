@@ -7,6 +7,7 @@ const state = {
   dragId: null,
   modalId: null,
   pendingImport: null,
+  compareIndex: 0,
 };
 
 const STORAGE_FALLBACK_KEY = 'mudae-manager-fallback-v2';
@@ -705,11 +706,104 @@ function renderPendingImport() {
   root.querySelectorAll('[data-update-dup]').forEach((btn) => btn.addEventListener('click', () => applyOneDuplicate(btn.dataset.updateDup)));
 }
 
+
+function renderCompareFields(targetId, character, differences, side) {
+  const target = qs(targetId);
+  if (!target) return;
+  const diffKeys = new Set((differences || []).map((item) => item.key));
+  const fields = [
+    ['name', 'Nome'],
+    ['series', 'Série'],
+    ['rank', 'Rank claim'],
+    ['likeRank', 'Rank like'],
+    ['kakera', 'Kakera'],
+    ['position', 'Posição'],
+    ['owner', 'Owner'],
+    ['ownedInSeries', 'Qtd. na série'],
+    ['totalInSeries', 'Total da série'],
+    ['title', 'Título'],
+    ['note', 'Nota'],
+    ['imageUrl', 'Imagem URL'],
+  ];
+  target.innerHTML = fields.map(([key, label]) => {
+    const raw = character?.[key];
+    const value = raw === null || raw === undefined || raw === '' ? '-' : String(raw);
+    const changed = diffKeys.has(key) ? ' compare-changed' : '';
+    return `<div class="compare-field${changed}"><strong>${escapeHtml(label)}</strong><div>${escapeHtml(value)}</div></div>`;
+  }).join('');
+}
+
+function setCompareImage(imgId, url) {
+  const img = qs(imgId);
+  if (!img) return;
+  const safeUrl = String(url || '').trim();
+  if (!safeUrl) {
+    img.removeAttribute('src');
+    img.classList.add('hidden');
+    return;
+  }
+  img.src = safeUrl.startsWith('http') ? `image_proxy.php?url=${encodeURIComponent(safeUrl)}` : safeUrl;
+  img.classList.remove('hidden');
+  img.onerror = () => {
+    img.src = safeUrl;
+    img.onerror = () => {
+      img.classList.add('hidden');
+      img.removeAttribute('src');
+    };
+  };
+}
+
+function closeCompareModal() {
+  const overlay = qs('#compareOverlay');
+  if (overlay) overlay.classList.add('hidden');
+}
+
 function showDuplicateCompare(key) {
-  const item = state.pendingImport?.duplicates.find((dup) => dup.key === key);
-  if (!item) return;
-  const diffText = item.differences.map((d) => `${d.label}\nBanco: ${d.oldValue || '-'}\nImportado: ${d.newValue || '-'}`).join('\n\n');
-  alert(`${item.incoming.name} — ${item.incoming.series}\n\n${diffText || 'Nenhuma diferença relevante.'}`);
+  if (!state.pendingImport?.duplicates?.length) return;
+  const idx = state.pendingImport.duplicates.findIndex((dup) => dup.key === key);
+  if (idx >= 0) state.compareIndex = idx;
+  renderCompareModal();
+}
+
+function renderCompareModal() {
+  const overlay = qs('#compareOverlay');
+  if (!overlay) return;
+  const duplicates = state.pendingImport?.duplicates || [];
+  if (!duplicates.length) {
+    closeCompareModal();
+    return;
+  }
+  if (state.compareIndex < 0) state.compareIndex = 0;
+  if (state.compareIndex >= duplicates.length) state.compareIndex = duplicates.length - 1;
+  const item = duplicates[state.compareIndex];
+  qs('#compareTitle').textContent = `${item.incoming.name} — ${item.incoming.series}`;
+  qs('#compareProgress').textContent = `Duplicado ${state.compareIndex + 1} de ${duplicates.length}`;
+  qs('#compareDiffSummary').innerHTML = item.differences.length
+    ? item.differences.map((diff) => `<span class="badge">${escapeHtml(diff.label)}</span>`).join(' ')
+    : '<span class="muted">Nenhuma diferença relevante detectada.</span>';
+  renderCompareFields('#compareExistingFields', item.existing, item.differences, 'existing');
+  renderCompareFields('#compareIncomingFields', item.incoming, item.differences, 'incoming');
+  setCompareImage('#compareExistingImage', item.existing?.imageUrl || '');
+  setCompareImage('#compareIncomingImage', item.incoming?.imageUrl || '');
+  overlay.classList.remove('hidden');
+}
+
+function resolveCurrentDuplicate(shouldUpdate) {
+  if (!state.pendingImport?.duplicates?.length) return;
+  const item = state.pendingImport.duplicates[state.compareIndex];
+  if (!item) {
+    closeCompareModal();
+    return;
+  }
+  if (shouldUpdate) applyOneDuplicate(item.key);
+  else removePendingDuplicateByKey(item.key);
+  if (!state.pendingImport?.duplicates?.length) {
+    closeCompareModal();
+    renderPendingImport();
+    return;
+  }
+  renderPendingImport();
+  renderCompareModal();
 }
 
 function analyzeImport(replace = false) {
@@ -726,13 +820,16 @@ function analyzeImport(replace = false) {
     else newCharacters.push(prepared);
   });
   state.pendingImport = { replace, parsed, newCharacters, duplicates };
+  state.compareIndex = 0;
   state.issues = parsed.issues || [];
   renderIssues();
   renderPendingImport();
   qs('#importSummary').textContent = `Análise concluída. Novos: ${newCharacters.length}. Repetidos: ${duplicates.length}. Avisos/erros: ${(parsed.issues || []).length}.`;
+  if (duplicates.length) renderCompareModal();
 }
 
-function applyPendingImport(options = { includeNew: true, includeDuplicates: false, duplicateKeys: null }) {
+
+function applyPendingImport(options = { includeNew: true, includeDuplicates: false, duplicateKeys: null, clearPending: true }) {
   if (!state.pendingImport) return;
   const harem = currentHarem();
   if (state.pendingImport.replace) {
@@ -753,17 +850,45 @@ function applyPendingImport(options = { includeNew: true, includeDuplicates: fal
     state.pendingImport.duplicates.forEach((dup) => {
       if (targetKeys && !targetKeys.has(dup.key)) return;
       const existing = map.get(dup.key);
-      if (existing) Object.assign(existing, mergeCharacter(existing, dup.incoming));
+      if (existing) {
+        const merged = mergeCharacter(existing, dup.incoming);
+        merged.position = existing.position;
+        Object.assign(existing, merged);
+      }
     });
   }
   harem.characters = harem.characters.sort((a, b) => a.position - b.position).map((character, index) => ({ ...character, position: index + 1 }));
-  if (state.pendingImport.parsed.meta?.title) harem.name = harem.name || state.pendingImport.parsed.meta.title;
-  state.pendingImport = null;
+  if (state.pendingImport.parsed.meta?.title && !harem.name) harem.name = state.pendingImport.parsed.meta.title;
+  if (options.clearPending) {
+    state.pendingImport = null;
+    state.compareIndex = 0;
+    closeCompareModal();
+  }
   renderAll();
 }
 
+function removePendingDuplicateByKey(key) {
+  if (!state.pendingImport) return;
+  state.pendingImport.duplicates = state.pendingImport.duplicates.filter((dup) => dup.key !== key);
+  if (state.compareIndex >= state.pendingImport.duplicates.length) {
+    state.compareIndex = Math.max(0, state.pendingImport.duplicates.length - 1);
+  }
+}
+
 function applyOneDuplicate(key) {
-  applyPendingImport({ includeNew: false, includeDuplicates: true, duplicateKeys: [key] });
+  if (!state.pendingImport) return;
+  const harem = currentHarem();
+  const dup = state.pendingImport.duplicates.find((item) => item.key === key);
+  if (!dup) return;
+  const existing = harem.characters.find((character) => `${character.name}||${character.series}`.toLowerCase() === key);
+  if (existing) {
+    const merged = mergeCharacter(existing, dup.incoming);
+    merged.position = existing.position;
+    Object.assign(existing, merged);
+  }
+  harem.characters = harem.characters.sort((a, b) => a.position - b.position).map((character, index) => ({ ...character, position: index + 1 }));
+  removePendingDuplicateByKey(key);
+  renderAll();
 }
 
 function openModal(id) {
@@ -961,6 +1086,8 @@ function bindEvents() {
     qs('#importInput').value = '';
     qs('#importSummary').textContent = '';
     state.pendingImport = null;
+    state.compareIndex = 0;
+    closeCompareModal();
     renderPendingImport();
   });
 
@@ -1057,7 +1184,14 @@ function bindEvents() {
   qs('#saveCharacterBtn').addEventListener('click', saveModalCharacter);
   qs('#trashCharacterBtn').addEventListener('click', () => { if (state.modalId) { moveCharacterToTrash(state.modalId); closeModal(); } });
   qs('#deleteCharacterBtn').addEventListener('click', () => { if (state.modalId) deleteCharacter(state.modalId); });
+  qs('#keepExistingBtn').addEventListener('click', () => resolveCurrentDuplicate(false));
+  qs('#updateExistingBtn').addEventListener('click', () => resolveCurrentDuplicate(true));
+  qs('#applyNewOnlyBtn').addEventListener('click', () => applyPendingImport({ includeNew: true, includeDuplicates: false }));
+  qs('#cancelCompareBtn').addEventListener('click', closeCompareModal);
+  qs('#closeCompareBtn').addEventListener('click', closeCompareModal);
+  qs('#compareOverlay').addEventListener('click', (event) => { if (event.target.id === 'compareOverlay') closeCompareModal(); });
 }
+
 
 document.addEventListener('DOMContentLoaded', async () => {
   bindEvents();

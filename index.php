@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Mudae Manager</title>
+  <link rel="icon" href="data:,">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -189,6 +190,38 @@
         </div>
       </div>
       <div class="row wrap"><button id="saveCharacterBtn" class="primary">Salvar personagem</button><button id="trashCharacterBtn">Mover pra lixeira</button><button id="deleteCharacterBtn" class="danger">Remover do banco</button></div>
+    </div>
+  </div>
+
+
+  <div id="compareOverlay" class="modal-overlay hidden">
+    <div class="modal compare-modal">
+      <div class="row space-between align-center">
+        <div>
+          <h3 id="compareTitle">Comparar duplicado</h3>
+          <div id="compareProgress" class="small muted"></div>
+        </div>
+        <button id="closeCompareBtn">Fechar</button>
+      </div>
+      <div id="compareDiffSummary" class="card small"></div>
+      <div class="compare-grid">
+        <div class="panel compare-panel">
+          <h4>Banco</h4>
+          <div class="compare-preview"><img id="compareExistingImage" alt="" /></div>
+          <div id="compareExistingFields"></div>
+        </div>
+        <div class="panel compare-panel">
+          <h4>Novo</h4>
+          <div class="compare-preview"><img id="compareIncomingImage" alt="" /></div>
+          <div id="compareIncomingFields"></div>
+        </div>
+      </div>
+      <div class="row wrap">
+        <button id="keepExistingBtn">Manter do banco</button>
+        <button id="updateExistingBtn" class="primary">Atualizar com o novo</button>
+        <button id="applyNewOnlyBtn">Importar só os novos</button>
+        <button id="cancelCompareBtn" class="danger">Fechar</button>
+      </div>
     </div>
   </div>
 
