@@ -1,4 +1,3 @@
-
 const state = {
   db: null,
   filtered: [],
@@ -7,9 +6,10 @@ const state = {
   activeList: 'wishlist',
   dragId: null,
   modalId: null,
+  pendingImport: null,
 };
 
-const STORAGE_FALLBACK_KEY = 'mudae-manager-fallback';
+const STORAGE_FALLBACK_KEY = 'mudae-manager-fallback-v2';
 
 const qs = (sel) => document.querySelector(sel);
 const qsa = (sel) => Array.from(document.querySelectorAll(sel));
@@ -23,7 +23,7 @@ function clone(value) {
 }
 
 function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+  return String(value ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m]));
 }
 
 function normalizeNumber(value) {
@@ -37,12 +37,27 @@ function normalizeTotalValue(value) {
   return Number.isFinite(normalized) ? normalized : null;
 }
 
+function makeIssue(kind, message, line = '') {
+  return { id: uid(), kind, message, line };
+}
+
 function createEmptyDb() {
   return {
-    meta: { updatedAt: '', version: 1 },
+    meta: { updatedAt: '', version: 2, currentHaremId: '' },
+    harems: [],
+  };
+}
+
+function createEmptyHarem(name = 'Meu Harém') {
+  return {
+    id: uid(),
+    name,
+    ownerName: name,
     characters: [],
     trash: [],
     lists: { wishlist: [], likelist: [], whitelist: [], blacklist: [] },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   };
 }
 
@@ -55,7 +70,7 @@ function sanitizeLines(raw) {
     /^#\d{4}$/,
     /^-----$/,
     /^=> /,
-    /^\/\/\/+/,
+    /^\/\/\/+$/,
     /^Você /i,
     /^A próxima/i,
     /^Próximo/i,
@@ -78,38 +93,107 @@ function extractUrls(raw) {
   return String(raw || '').match(/https?:\/\/\S+/g) || [];
 }
 
-function ensureLists() {
-  if (!state.db.lists) state.db.lists = { wishlist: [], likelist: [], whitelist: [], blacklist: [] };
-  ['wishlist','likelist','whitelist','blacklist'].forEach((key) => {
-    if (!Array.isArray(state.db.lists[key])) state.db.lists[key] = [];
+function escapeForMudae(value) {
+  return String(value || '').replace(/\$/g, '\\$').replace(/\n/g, ' ').trim();
+}
+
+function currentHarem() {
+  if (!state.db) return null;
+  const id = state.db.meta.currentHaremId;
+  return state.db.harems.find((h) => h.id === id) || state.db.harems[0] || null;
+}
+
+function ensureLists(harem) {
+  if (!harem.lists) harem.lists = { wishlist: [], likelist: [], whitelist: [], blacklist: [] };
+  ['wishlist', 'likelist', 'whitelist', 'blacklist'].forEach((key) => {
+    if (!Array.isArray(harem.lists[key])) harem.lists[key] = [];
   });
 }
 
 function isInList(listName, name) {
-  ensureLists();
-  return state.db.lists[listName].some((item) => item.toLowerCase() === String(name).toLowerCase());
+  const harem = currentHarem();
+  if (!harem) return false;
+  ensureLists(harem);
+  return harem.lists[listName].some((item) => item.toLowerCase() === String(name).toLowerCase());
 }
 
 function setInList(listName, name, enabled) {
-  ensureLists();
+  const harem = currentHarem();
+  if (!harem) return;
+  ensureLists(harem);
   const lower = String(name).toLowerCase();
-  const arr = state.db.lists[listName].filter((item) => item.toLowerCase() !== lower);
+  const arr = harem.lists[listName].filter((item) => item.toLowerCase() !== lower);
   if (enabled) arr.push(name);
-  arr.sort((a,b) => a.localeCompare(b,'pt-BR'));
-  state.db.lists[listName] = arr;
+  arr.sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  harem.lists[listName] = arr;
 }
 
 function listTagsForCharacter(character) {
-  return ['wishlist','likelist','whitelist','blacklist'].filter((listName) => isInList(listName, character.name));
-}
-
-function makeIssue(kind, message, line = '') {
-  return { id: uid(), kind, message, line };
+  return ['wishlist', 'likelist', 'whitelist', 'blacklist'].filter((listName) => isInList(listName, character.name));
 }
 
 function splitMixedBlocks(raw) {
   const text = String(raw || '').replace(/\r/g, '');
-  return text.split(/\n(?=(?:【?.+?】?\s*-\s*\d+\s*\/\s*\d+|[^\n]+\n[^\n]+(?:\s+:[a-z_]+:)*\n(?:Animanga|Game) roulette|[0-9]+\.\s+https?:\/\/))/i);
+  return text.split(/\n(?=(?:【?.+?】?\s*-\s*\d+\s*\/\s*\d+|[^\n]+\n[^\n]+(?:\s+:[a-z_]+:)*\n(?:Animanga|Game) roulette|\d+\.\s+https?:\/\/))/i);
+}
+
+function prepareCharacter(character) {
+  return {
+    id: character.id || uid(),
+    position: character.position || 999999,
+    name: String(character.name || 'Sem nome').trim(),
+    series: String(character.series || 'Sem série identificada').trim(),
+    rank: normalizeNumber(character.rank || 0),
+    likeRank: normalizeNumber(character.likeRank || 0),
+    kakera: normalizeNumber(character.kakera || 0),
+    imageUrl: character.imageUrl || '',
+    imageOptions: character.imageOptions || {},
+    owner: character.owner || '',
+    ownedInSeries: character.ownedInSeries ?? null,
+    totalInSeries: character.totalInSeries ?? null,
+    title: character.title || '',
+    note: character.note || '',
+    divorce: Boolean(character.divorce),
+    createdAt: character.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function mergeCharacter(oldChar, newChar) {
+  return {
+    ...oldChar,
+    ...newChar,
+    imageOptions: { ...(oldChar.imageOptions || {}), ...(newChar.imageOptions || {}) },
+    imageUrl: newChar.imageUrl || oldChar.imageUrl || '',
+    likeRank: newChar.likeRank || oldChar.likeRank || 0,
+    kakera: newChar.kakera || oldChar.kakera || 0,
+    owner: newChar.owner || oldChar.owner || '',
+    title: newChar.title || oldChar.title || '',
+    note: newChar.note || oldChar.note || '',
+    position: oldChar.position || newChar.position || 999999,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function compareCharacters(existing, incoming) {
+  const fields = [
+    ['series', 'Série'],
+    ['rank', 'Rank claim'],
+    ['likeRank', 'Rank like'],
+    ['kakera', 'Kakera'],
+    ['imageUrl', 'Imagem'],
+    ['owner', 'Owner'],
+    ['title', 'Título'],
+  ];
+  const diffs = [];
+  fields.forEach(([key, label]) => {
+    const a = existing[key] ?? '';
+    const b = incoming[key] ?? '';
+    if (String(a) !== String(b) && String(b) !== '') {
+      diffs.push({ key, label, oldValue: a, newValue: b });
+    }
+  });
+  return diffs;
 }
 
 function parseSingleCharacterBlock(block) {
@@ -117,16 +201,17 @@ function parseSingleCharacterBlock(block) {
   if (!lines.length) return null;
 
   const name = lines[0] || '';
-  const seriesLine = lines.find((line, index) =>
-    index > 0 &&
-    !/^Animanga roulette/i.test(line) &&
-    !/^Game roulette/i.test(line) &&
-    !/^Rank de claim:/i.test(line) &&
-    !/^Rank de like:/i.test(line) &&
-    !/^Pertence a /i.test(line) &&
-    !/^\d+\.\s+https?:\/\//i.test(line) &&
-    !/^https?:\/\//i.test(line) &&
-    !/\(\+\d+\)/.test(line)
+  const seriesLine = lines.find(
+    (line, index) =>
+      index > 0 &&
+      !/^Animanga roulette/i.test(line) &&
+      !/^Game roulette/i.test(line) &&
+      !/^Rank de claim:/i.test(line) &&
+      !/^Rank de like:/i.test(line) &&
+      !/^Pertence a /i.test(line) &&
+      !/^\d+\.\s+https?:\/\//i.test(line) &&
+      !/^https?:\/\//i.test(line) &&
+      !/\(\+\d+\)/.test(line)
   );
   const series = seriesLine ? seriesLine.replace(/:[^\s]+:/g, '').trim() : '';
   const kakeraLine = lines.find((line) => /:kakera:/i.test(line));
@@ -240,9 +325,8 @@ function parseMixedImport(raw) {
       harem.characters.forEach((character) => {
         const key = `${character.name}||${character.series}`.toLowerCase();
         const existing = map.get(key);
-        if (existing) {
-          Object.assign(existing, mergeCharacter(existing, character));
-        } else {
+        if (existing) Object.assign(existing, mergeCharacter(existing, character));
+        else {
           const prepared = prepareCharacter(character);
           result.characters.push(prepared);
           map.set(key, prepared);
@@ -255,9 +339,8 @@ function parseMixedImport(raw) {
     if (single?.character) {
       const key = `${single.character.name}||${single.character.series}`.toLowerCase();
       const existing = map.get(key);
-      if (existing) {
-        Object.assign(existing, mergeCharacter(existing, single.character));
-      } else {
+      if (existing) Object.assign(existing, mergeCharacter(existing, single.character));
+      else {
         const prepared = prepareCharacter(single.character);
         result.characters.push(prepared);
         map.set(key, prepared);
@@ -266,58 +349,23 @@ function parseMixedImport(raw) {
     }
   });
 
-  if (!result.characters.length) {
-    result.issues.push(makeIssue('error', 'Nenhum personagem foi identificado no texto importado.'));
-  }
-
-  result.characters = result.characters
-    .sort((a, b) => a.position - b.position)
-    .map((character, index) => ({ ...character, position: index + 1 }));
-
+  if (!result.characters.length) result.issues.push(makeIssue('error', 'Nenhum personagem foi identificado no texto importado.'));
+  result.characters = result.characters.sort((a, b) => a.position - b.position).map((c, i) => ({ ...c, position: i + 1 }));
   return result;
 }
 
-function prepareCharacter(character) {
-  return {
-    id: character.id || uid(),
-    position: character.position || 999999,
-    name: String(character.name || 'Sem nome').trim(),
-    series: String(character.series || 'Sem série identificada').trim(),
-    rank: normalizeNumber(character.rank || 0),
-    likeRank: normalizeNumber(character.likeRank || 0),
-    kakera: normalizeNumber(character.kakera || 0),
-    imageUrl: character.imageUrl || '',
-    imageOptions: character.imageOptions || {},
-    owner: character.owner || '',
-    ownedInSeries: character.ownedInSeries ?? null,
-    totalInSeries: character.totalInSeries ?? null,
-    title: character.title || '',
-    note: character.note || '',
-    divorce: Boolean(character.divorce),
-    createdAt: character.createdAt || new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-}
-
-function mergeCharacter(oldChar, newChar) {
-  return {
-    ...oldChar,
-    ...newChar,
-    imageOptions: { ...(oldChar.imageOptions || {}), ...(newChar.imageOptions || {}) },
-    imageUrl: newChar.imageUrl || oldChar.imageUrl || '',
-    likeRank: newChar.likeRank || oldChar.likeRank || 0,
-    kakera: newChar.kakera || oldChar.kakera || 0,
-    owner: newChar.owner || oldChar.owner || '',
-    title: newChar.title || oldChar.title || '',
-    note: newChar.note || oldChar.note || '',
-    position: oldChar.position || newChar.position || 999999,
-    updatedAt: new Date().toISOString(),
-  };
+function parseNamesOnly(raw) {
+  return sanitizeLines(raw)
+    .map((line) => line.replace(/^[-•*]\s*/, '').replace(/^\d+\s*-\s*/, '').replace(/\s+~\s+.*$/, '').trim())
+    .filter((line) => line && !/^Rank de/i.test(line) && !/:kakera:/i.test(line) && !/^https?:\/\//i.test(line) && !/^Pertence a /i.test(line))
+    .filter((line) => !/ - \d+\/\d+$/.test(line))
+    .filter((line) => !/^#\d+/.test(line))
+    .filter((line) => !/:female:|:male:/i.test(line));
 }
 
 async function api(action, method = 'GET', data = null) {
   const options = { method, headers: {} };
-  let url = `api.php?action=${encodeURIComponent(action)}`;
+  const url = `api.php?action=${encodeURIComponent(action)}`;
   if (method !== 'GET' && data !== null) {
     options.headers['Content-Type'] = 'application/json';
     options.body = JSON.stringify(data);
@@ -325,6 +373,43 @@ async function api(action, method = 'GET', data = null) {
   const response = await fetch(url, options);
   if (!response.ok) throw new Error(`Falha HTTP ${response.status}`);
   return response.json();
+}
+
+function migrateDbShape(db) {
+  if (!db || typeof db !== 'object') return createEmptyDb();
+  if (Array.isArray(db.harems)) {
+    if (!db.meta) db.meta = { updatedAt: '', version: 2, currentHaremId: '' };
+    if (!db.meta.currentHaremId && db.harems[0]) db.meta.currentHaremId = db.harems[0].id;
+    return db;
+  }
+  const harem = createEmptyHarem(db.meta?.title || 'Meu Harém');
+  harem.characters = Array.isArray(db.characters) ? db.characters : [];
+  harem.trash = Array.isArray(db.trash) ? db.trash : [];
+  harem.lists = db.lists || harem.lists;
+  const next = createEmptyDb();
+  next.harems = [harem];
+  next.meta.currentHaremId = harem.id;
+  next.meta.updatedAt = db.meta?.updatedAt || '';
+  return next;
+}
+
+function normalizeDb() {
+  state.db = migrateDbShape(state.db);
+  if (!state.db.harems.length) {
+    const harem = createEmptyHarem('Meu Harém');
+    state.db.harems.push(harem);
+    state.db.meta.currentHaremId = harem.id;
+  }
+  state.db.harems.forEach((harem) => {
+    if (!Array.isArray(harem.characters)) harem.characters = [];
+    if (!Array.isArray(harem.trash)) harem.trash = [];
+    ensureLists(harem);
+    harem.characters = harem.characters
+      .map((character, index) => prepareCharacter({ ...character, position: character.position || index + 1 }))
+      .sort((a, b) => a.position - b.position)
+      .map((character, index) => ({ ...character, position: index + 1 }));
+  });
+  if (!currentHarem() && state.db.harems[0]) state.db.meta.currentHaremId = state.db.harems[0].id;
 }
 
 async function loadDb() {
@@ -340,20 +425,6 @@ async function loadDb() {
   normalizeDb();
   renderAll();
   await loadBackups();
-}
-
-function normalizeDb() {
-  if (!state.db) state.db = createEmptyDb();
-  if (!Array.isArray(state.db.characters)) state.db.characters = [];
-  if (!Array.isArray(state.db.trash)) state.db.trash = [];
-  if (!state.db.meta) state.db.meta = { updatedAt: '', version: 1 };
-  if (!state.db.lists) state.db.lists = { wishlist: [], likelist: [], whitelist: [], blacklist: [] };
-  ['wishlist','likelist','whitelist','blacklist'].forEach((k) => {
-    if (!Array.isArray(state.db.lists[k])) state.db.lists[k] = [];
-  });
-  state.db.characters = state.db.characters.map((character, index) => prepareCharacter({ ...character, position: character.position || index + 1 }))
-    .sort((a,b)=>a.position-b.position)
-    .map((character,index)=>({ ...character, position:index+1 }));
 }
 
 async function saveDb(showMessage = true) {
@@ -386,7 +457,7 @@ async function loadBackups() {
   try {
     const payload = await api('list_backups');
     renderBackups(payload.backups || []);
-  } catch (error) {
+  } catch {
     renderBackups([]);
   }
 }
@@ -419,20 +490,25 @@ function renderBackups(backups) {
       </div>
     </div>
   `).join('');
-  root.querySelectorAll('[data-restore]').forEach((btn) => {
-    btn.addEventListener('click', () => restoreBackup(btn.dataset.restore));
-  });
+  root.querySelectorAll('[data-restore]').forEach((btn) => btn.addEventListener('click', () => restoreBackup(btn.dataset.restore)));
 }
 
-function setCommandOutput(value) {
-  qs('#commandOutput').value = value || '';
+function renderHaremControls() {
+  const select = qs('#haremSelect');
+  const currentId = state.db.meta.currentHaremId;
+  select.innerHTML = state.db.harems.map((harem) => `<option value="${escapeHtml(harem.id)}">${escapeHtml(harem.name)}</option>`).join('');
+  select.value = currentId;
+  const harem = currentHarem();
+  qs('#currentHaremInfo').textContent = harem ? `Harém atual: ${harem.name}` : 'Sem harém selecionado';
 }
 
 function renderStats() {
-  qs('#statTotal').textContent = state.db.characters.length;
-  qs('#statKakera').textContent = state.db.characters.reduce((sum, c) => sum + (c.kakera || 0), 0).toLocaleString('pt-BR');
-  qs('#statDivorce').textContent = state.db.characters.filter((c) => c.divorce).length;
-  qs('#statTrash').textContent = state.db.trash.length;
+  const harem = currentHarem();
+  if (!harem) return;
+  qs('#statTotal').textContent = harem.characters.length;
+  qs('#statKakera').textContent = harem.characters.reduce((sum, c) => sum + (c.kakera || 0), 0).toLocaleString('pt-BR');
+  qs('#statDivorce').textContent = harem.characters.filter((c) => c.divorce).length;
+  qs('#statTrash').textContent = harem.trash.length;
 }
 
 function currentFilters() {
@@ -445,16 +521,18 @@ function currentFilters() {
 }
 
 function renderSeriesFilter() {
+  const harem = currentHarem();
   const select = qs('#seriesFilter');
   const current = select.value;
-  const series = [...new Set(state.db.characters.map((c) => c.series).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  const series = [...new Set((harem?.characters || []).map((c) => c.series).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
   select.innerHTML = '<option value="">Todas as séries</option>' + series.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
   if (series.includes(current)) select.value = current;
 }
 
 function applyFilters() {
+  const harem = currentHarem();
   const { search, series, status, sort } = currentFilters();
-  let list = [...state.db.characters];
+  let list = [...(harem?.characters || [])];
 
   if (search) {
     list = list.filter((character) => {
@@ -495,54 +573,39 @@ function renderCharacters() {
     tbody.innerHTML = '<tr><td colspan="12" class="muted">Nenhum personagem encontrado.</td></tr>';
     return;
   }
-
   tbody.innerHTML = state.filtered.map((character) => {
     const tags = listTagsForCharacter(character);
     const preview = character.imageUrl
-      ? `<img class="thumb" src="${previewSrc(character)}" alt="${escapeHtml(character.name)}" loading="lazy" onerror="this.outerHTML='<div class=&quot;thumb-placeholder&quot;>sem preview</div>';">`
+      ? `<img class="thumb" src="${previewSrc(character)}" alt="${escapeHtml(character.name)}" loading="lazy" onerror="this.outerHTML='<div class=&quot;thumb-placeholder&quot;>sem preview</div>'">`
       : '<div class="thumb-placeholder">sem imagem</div>';
     return `
       <tr draggable="${currentFilters().sort === 'position'}" data-id="${character.id}">
         <td><input type="checkbox" data-select="${character.id}" ${state.selected.has(character.id) ? 'checked' : ''}></td>
-        <td><span class="drag-handle" title="Arrastar">⋮⋮</span></td>
+        <td><span class="drag-handle">⋮⋮</span></td>
         <td>${character.position}</td>
         <td>${preview}</td>
-        <td>
-          <strong>${escapeHtml(character.name)}</strong>
-          ${character.title ? `<div class="small muted">${escapeHtml(character.title)}</div>` : ''}
-          ${character.owner ? `<div class="small muted">Owner: ${escapeHtml(character.owner)}</div>` : ''}
-          ${character.imageUrl ? `<div class="actions"><a href="${escapeHtml(character.imageUrl)}" target="_blank">abrir imagem</a></div>` : ''}
-        </td>
+        <td><strong>${escapeHtml(character.name)}</strong>${character.title ? `<div class="small muted">${escapeHtml(character.title)}</div>` : ''}${character.owner ? `<div class="small muted">Owner: ${escapeHtml(character.owner)}</div>` : ''}${character.imageUrl ? `<div class="actions"><a href="${escapeHtml(character.imageUrl)}" target="_blank">abrir imagem</a></div>` : ''}</td>
         <td>${escapeHtml(character.series)}</td>
         <td>#${Number(character.rank || 0).toLocaleString('pt-BR')}</td>
         <td>${character.likeRank ? '#' + Number(character.likeRank).toLocaleString('pt-BR') : '-'}</td>
         <td>${Number(character.kakera || 0).toLocaleString('pt-BR')}</td>
         <td>${tags.length ? tags.map((tag) => `<span class="tag">${tag}</span>`).join('') : '<span class="muted small">-</span>'}</td>
         <td><input type="checkbox" data-divorce="${character.id}" ${character.divorce ? 'checked' : ''}></td>
-        <td class="actions">
-          <button data-edit="${character.id}">Editar</button>
-          <button data-trash="${character.id}">Lixeira</button>
-          <button data-delete="${character.id}">Remover</button>
-        </td>
-      </tr>
-    `;
+        <td class="actions"><button data-edit="${character.id}">Editar</button><button data-trash="${character.id}">Lixeira</button><button data-delete="${character.id}">Remover</button></td>
+      </tr>`;
   }).join('');
 
-  tbody.querySelectorAll('[data-select]').forEach((el) => {
-    el.addEventListener('change', () => {
-      if (el.checked) state.selected.add(el.dataset.select);
-      else state.selected.delete(el.dataset.select);
-    });
-  });
+  tbody.querySelectorAll('[data-select]').forEach((el) => el.addEventListener('change', () => {
+    if (el.checked) state.selected.add(el.dataset.select); else state.selected.delete(el.dataset.select);
+  }));
 
-  tbody.querySelectorAll('[data-divorce]').forEach((el) => {
-    el.addEventListener('change', () => {
-      const character = state.db.characters.find((item) => item.id === el.dataset.divorce);
-      if (!character) return;
-      character.divorce = el.checked;
-      renderStats();
-    });
-  });
+  const harem = currentHarem();
+  tbody.querySelectorAll('[data-divorce]').forEach((el) => el.addEventListener('change', () => {
+    const character = harem.characters.find((item) => item.id === el.dataset.divorce);
+    if (!character) return;
+    character.divorce = el.checked;
+    renderStats();
+  }));
 
   tbody.querySelectorAll('[data-edit]').forEach((btn) => btn.addEventListener('click', () => openModal(btn.dataset.edit)));
   tbody.querySelectorAll('[data-trash]').forEach((btn) => btn.addEventListener('click', () => moveCharacterToTrash(btn.dataset.trash)));
@@ -550,8 +613,10 @@ function renderCharacters() {
 
   if (currentFilters().sort === 'position') {
     tbody.querySelectorAll('tr[data-id]').forEach((row) => {
-      row.addEventListener('dragstart', () => {
+      row.addEventListener('dragstart', (event) => {
         state.dragId = row.dataset.id;
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', state.dragId);
         row.classList.add('dragging');
       });
       row.addEventListener('dragend', () => {
@@ -560,24 +625,27 @@ function renderCharacters() {
       });
       row.addEventListener('dragover', (event) => {
         event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
       });
       row.addEventListener('drop', (event) => {
         event.preventDefault();
-        if (!state.dragId || state.dragId === row.dataset.id) return;
-        reorderByDrag(state.dragId, row.dataset.id);
+        const dragId = state.dragId || event.dataTransfer.getData('text/plain');
+        if (!dragId || dragId === row.dataset.id) return;
+        reorderByDrag(dragId, row.dataset.id);
       });
     });
   }
 }
 
 function reorderByDrag(dragId, targetId) {
-  const ordered = [...state.db.characters].sort((a,b)=>a.position-b.position);
+  const harem = currentHarem();
+  const ordered = [...harem.characters].sort((a, b) => a.position - b.position);
   const fromIndex = ordered.findIndex((item) => item.id === dragId);
   const toIndex = ordered.findIndex((item) => item.id === targetId);
   if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
   const [moved] = ordered.splice(fromIndex, 1);
   ordered.splice(toIndex, 0, moved);
-  state.db.characters = ordered.map((character, index) => ({ ...character, position: index + 1 }));
+  harem.characters = ordered.map((character, index) => ({ ...character, position: index + 1 }));
   renderAll();
 }
 
@@ -588,93 +656,119 @@ function renderIssues() {
     root.innerHTML = '<div class="card muted small">Nenhum erro ou aviso.</div>';
     return;
   }
-  root.innerHTML = merged.map((issue) => `
-    <div class="card">
-      <strong>${issue.kind === 'error' ? 'Erro' : 'Aviso'}</strong>
-      <div>${escapeHtml(issue.message)}</div>
-      ${issue.line ? `<pre class="small">${escapeHtml(issue.line)}</pre>` : ''}
-    </div>
-  `).join('');
+  root.innerHTML = merged.map((issue) => `<div class="card"><strong>${issue.kind === 'error' ? 'Erro' : 'Aviso'}</strong><div>${escapeHtml(issue.message)}</div>${issue.line ? `<pre class="small">${escapeHtml(issue.line)}</pre>` : ''}</div>`).join('');
 }
 
 function renderTrash() {
   const root = qs('#trashList');
-  if (!state.db.trash.length) {
+  const harem = currentHarem();
+  if (!harem || !harem.trash.length) {
     root.innerHTML = '<div class="card muted small">Lixeira vazia.</div>';
     return;
   }
-  root.innerHTML = state.db.trash.map((character) => `
-    <div class="card">
-      <div class="row space-between align-center">
-        <div>
-          <strong>${escapeHtml(character.name)}</strong>
-          <div class="small muted">${escapeHtml(character.series)}</div>
-        </div>
-        <div class="actions">
-          <button data-restore-trash="${character.id}">Restaurar</button>
-          <button data-delete-trash="${character.id}">Excluir</button>
-        </div>
-      </div>
-    </div>
-  `).join('');
+  root.innerHTML = harem.trash.map((character) => `<div class="card"><div class="row space-between align-center"><div><strong>${escapeHtml(character.name)}</strong><div class="small muted">${escapeHtml(character.series)}</div></div><div class="actions"><button data-restore-trash="${character.id}">Restaurar</button><button data-delete-trash="${character.id}">Excluir</button></div></div></div>`).join('');
   root.querySelectorAll('[data-restore-trash]').forEach((btn) => btn.addEventListener('click', () => restoreFromTrash(btn.dataset.restoreTrash)));
   root.querySelectorAll('[data-delete-trash]').forEach((btn) => btn.addEventListener('click', () => deleteFromTrash(btn.dataset.deleteTrash)));
 }
 
 function renderListPreview() {
   const root = qs('#listPreview');
+  const harem = currentHarem();
   const listName = state.activeList;
-  const items = state.db.lists[listName] || [];
-  root.innerHTML = items.length
-    ? items.map((item) => `<div class="card">${escapeHtml(item)}</div>`).join('')
-    : '<div class="card muted small">Lista vazia.</div>';
+  const items = harem?.lists?.[listName] || [];
+  root.innerHTML = items.length ? items.map((item) => `<div class="card">${escapeHtml(item)}</div>`).join('') : '<div class="card muted small">Lista vazia.</div>';
 }
 
-function renderAll() {
-  renderSeriesFilter();
-  renderStats();
-  renderCharacters();
-  renderIssues();
-  renderTrash();
-  renderListPreview();
-}
-
-function importIntoDb(parsed, replace = false) {
-  if (replace) {
-    state.db = createEmptyDb();
+function renderPendingImport() {
+  const root = qs('#duplicatesList');
+  const summary = qs('#duplicatesSummary');
+  if (!state.pendingImport) {
+    summary.textContent = 'Nenhuma importação analisada ainda.';
+    root.innerHTML = '<div class="card muted small">Os duplicados vão aparecer aqui antes de atualizar o banco.</div>';
+    return;
   }
-  const map = new Map(state.db.characters.map((character) => [`${character.name}||${character.series}`.toLowerCase(), character]));
+  const { newCharacters, duplicates } = state.pendingImport;
+  summary.textContent = `Novos: ${newCharacters.length} | Repetidos: ${duplicates.length}`;
+  if (!duplicates.length) {
+    root.innerHTML = '<div class="card muted small">Nenhum repetido encontrado nessa análise.</div>';
+    return;
+  }
+  root.innerHTML = duplicates.map((item) => `
+    <div class="card">
+      <div class="row space-between align-center">
+        <div><strong>${escapeHtml(item.incoming.name)}</strong><div class="small muted">${escapeHtml(item.incoming.series)}</div></div>
+        <div class="actions"><button data-compare="${item.key}">Comparar</button><button data-update-dup="${item.key}">Atualizar banco</button></div>
+      </div>
+      <div class="small muted">Campos diferentes: ${item.differences.map((d) => d.label).join(', ') || 'nenhum'}</div>
+    </div>`).join('');
+  root.querySelectorAll('[data-compare]').forEach((btn) => btn.addEventListener('click', () => showDuplicateCompare(btn.dataset.compare)));
+  root.querySelectorAll('[data-update-dup]').forEach((btn) => btn.addEventListener('click', () => applyOneDuplicate(btn.dataset.updateDup)));
+}
+
+function showDuplicateCompare(key) {
+  const item = state.pendingImport?.duplicates.find((dup) => dup.key === key);
+  if (!item) return;
+  const diffText = item.differences.map((d) => `${d.label}\nBanco: ${d.oldValue || '-'}\nImportado: ${d.newValue || '-'}`).join('\n\n');
+  alert(`${item.incoming.name} — ${item.incoming.series}\n\n${diffText || 'Nenhuma diferença relevante.'}`);
+}
+
+function analyzeImport(replace = false) {
+  const parsed = parseMixedImport(qs('#importInput').value);
+  const harem = currentHarem();
+  const existingMap = new Map((replace ? [] : harem.characters).map((character) => [`${character.name}||${character.series}`.toLowerCase(), character]));
+  const newCharacters = [];
+  const duplicates = [];
   parsed.characters.forEach((incoming) => {
     const prepared = prepareCharacter(incoming);
     const key = `${prepared.name}||${prepared.series}`.toLowerCase();
-    const existing = map.get(key);
-    if (existing) {
-      Object.assign(existing, mergeCharacter(existing, prepared));
-    } else {
-      prepared.position = state.db.characters.length + 1;
-      state.db.characters.push(prepared);
-      map.set(key, prepared);
-    }
+    const existing = existingMap.get(key);
+    if (existing) duplicates.push({ key, existing: clone(existing), incoming: prepared, differences: compareCharacters(existing, prepared) });
+    else newCharacters.push(prepared);
   });
-  state.db.characters = state.db.characters
-    .sort((a,b)=>a.position-b.position)
-    .map((character,index)=>({ ...character, position:index+1 }));
-  if (parsed.meta?.title) state.db.meta.title = parsed.meta.title;
-  if (parsed.meta?.totalKakera !== null && parsed.meta?.totalKakera !== undefined) state.db.meta.totalKakera = parsed.meta.totalKakera;
+  state.pendingImport = { replace, parsed, newCharacters, duplicates };
   state.issues = parsed.issues || [];
+  renderIssues();
+  renderPendingImport();
+  qs('#importSummary').textContent = `Análise concluída. Novos: ${newCharacters.length}. Repetidos: ${duplicates.length}. Avisos/erros: ${(parsed.issues || []).length}.`;
 }
 
-function parseNamesOnly(raw) {
-  return sanitizeLines(raw)
-    .map((line) => line.replace(/^[-•*]\s*/, '').trim())
-    .filter((line) => line && !/^Rank de/i.test(line) && !/:kakera:/i.test(line) && !/^https?:\/\//i.test(line) && !/^Pertence a /i.test(line))
-    .filter((line) => !/ - \d+\/\d+$/.test(line))
-    .filter((line) => !/^#\d+/.test(line))
-    .filter((line) => !/:female:|:male:/i.test(line));
+function applyPendingImport(options = { includeNew: true, includeDuplicates: false, duplicateKeys: null }) {
+  if (!state.pendingImport) return;
+  const harem = currentHarem();
+  if (state.pendingImport.replace) {
+    harem.characters = [];
+    state.selected.clear();
+  }
+  const map = new Map(harem.characters.map((character) => [`${character.name}||${character.series}`.toLowerCase(), character]));
+  if (options.includeNew) {
+    state.pendingImport.newCharacters.forEach((incoming) => {
+      const prepared = prepareCharacter(incoming);
+      prepared.position = harem.characters.length + 1;
+      harem.characters.push(prepared);
+      map.set(`${prepared.name}||${prepared.series}`.toLowerCase(), prepared);
+    });
+  }
+  const targetKeys = options.duplicateKeys ? new Set(options.duplicateKeys) : null;
+  if (options.includeDuplicates) {
+    state.pendingImport.duplicates.forEach((dup) => {
+      if (targetKeys && !targetKeys.has(dup.key)) return;
+      const existing = map.get(dup.key);
+      if (existing) Object.assign(existing, mergeCharacter(existing, dup.incoming));
+    });
+  }
+  harem.characters = harem.characters.sort((a, b) => a.position - b.position).map((character, index) => ({ ...character, position: index + 1 }));
+  if (state.pendingImport.parsed.meta?.title) harem.name = harem.name || state.pendingImport.parsed.meta.title;
+  state.pendingImport = null;
+  renderAll();
+}
+
+function applyOneDuplicate(key) {
+  applyPendingImport({ includeNew: false, includeDuplicates: true, duplicateKeys: [key] });
 }
 
 function openModal(id) {
-  const character = state.db.characters.find((item) => item.id === id);
+  const harem = currentHarem();
+  const character = harem.characters.find((item) => item.id === id);
   if (!character) return;
   state.modalId = id;
   qs('#modalTitle').textContent = `Editar: ${character.name}`;
@@ -705,15 +799,13 @@ function closeModal() {
 function updateModalPreview() {
   const img = qs('#editPreview');
   const url = qs('#editImageUrl').value.trim();
-  if (!url) {
-    img.removeAttribute('src');
-    return;
-  }
+  if (!url) { img.removeAttribute('src'); return; }
   img.src = `image_proxy.php?url=${encodeURIComponent(url)}`;
 }
 
 function saveModalCharacter() {
-  const character = state.db.characters.find((item) => item.id === state.modalId);
+  const harem = currentHarem();
+  const character = harem.characters.find((item) => item.id === state.modalId);
   if (!character) return;
   const oldName = character.name;
   character.name = qs('#editName').value.trim() || character.name;
@@ -727,18 +819,12 @@ function saveModalCharacter() {
   character.imageUrl = qs('#editImageUrl').value.trim();
   character.divorce = qs('#editDivorce').checked;
   character.updatedAt = new Date().toISOString();
-
-  ['wishlist','likelist','whitelist','blacklist'].forEach((listName) => {
-    setInList(listName, oldName, false);
-  });
+  ['wishlist', 'likelist', 'whitelist', 'blacklist'].forEach((listName) => setInList(listName, oldName, false));
   setInList('wishlist', character.name, qs('#editWishlist').checked);
   setInList('likelist', character.name, qs('#editLikelist').checked);
   setInList('whitelist', character.name, qs('#editWhitelist').checked);
   setInList('blacklist', character.name, qs('#editBlacklist').checked);
-
-  state.db.characters = state.db.characters
-    .sort((a,b)=>a.position-b.position)
-    .map((item,index)=>({ ...item, position:index+1 }));
+  harem.characters = harem.characters.sort((a, b) => a.position - b.position).map((item, index) => ({ ...item, position: index + 1 }));
   renderAll();
   closeModal();
 }
@@ -769,86 +855,146 @@ function applySingleImportToModal() {
 }
 
 function moveCharacterToTrash(id) {
-  const idx = state.db.characters.findIndex((item) => item.id === id);
+  const harem = currentHarem();
+  const idx = harem.characters.findIndex((item) => item.id === id);
   if (idx < 0) return;
-  const [removed] = state.db.characters.splice(idx, 1);
-  state.db.trash.unshift({ ...removed, trashedAt: new Date().toISOString() });
-  state.db.characters = state.db.characters.map((character, index) => ({ ...character, position: index + 1 }));
+  const [removed] = harem.characters.splice(idx, 1);
+  harem.trash.unshift({ ...removed, trashedAt: new Date().toISOString() });
+  harem.characters = harem.characters.map((character, index) => ({ ...character, position: index + 1 }));
   state.selected.delete(id);
   renderAll();
 }
 
 function restoreFromTrash(id) {
-  const idx = state.db.trash.findIndex((item) => item.id === id);
+  const harem = currentHarem();
+  const idx = harem.trash.findIndex((item) => item.id === id);
   if (idx < 0) return;
-  const [restored] = state.db.trash.splice(idx, 1);
-  restored.position = state.db.characters.length + 1;
-  state.db.characters.push(restored);
+  const [restored] = harem.trash.splice(idx, 1);
+  restored.position = harem.characters.length + 1;
+  harem.characters.push(restored);
   renderAll();
 }
 
 function deleteCharacter(id) {
   if (!confirm('Remover personagem do banco?')) return;
-  state.db.characters = state.db.characters.filter((item) => item.id !== id).map((character, index) => ({ ...character, position: index + 1 }));
+  const harem = currentHarem();
+  harem.characters = harem.characters.filter((item) => item.id !== id).map((character, index) => ({ ...character, position: index + 1 }));
   state.selected.delete(id);
   renderAll();
   closeModal();
 }
 
 function deleteFromTrash(id) {
-  state.db.trash = state.db.trash.filter((item) => item.id !== id);
+  const harem = currentHarem();
+  harem.trash = harem.trash.filter((item) => item.id !== id);
   renderTrash();
   renderStats();
+}
+
+function setCommandOutput(value) {
+  qs('#commandOutput').value = value || '';
+}
+
+function chunkCommand(prefix, names) {
+  const chunks = [];
+  let current = prefix;
+  names.forEach((name) => {
+    const token = (current === prefix ? '' : ' $ ') + name;
+    if ((current + token).length > 1800) {
+      chunks.push(current);
+      current = prefix + name;
+    } else current += token;
+  });
+  if (current.trim()) chunks.push(current);
+  return chunks.join('\n\n');
+}
+
+function renderAll() {
+  renderHaremControls();
+  renderSeriesFilter();
+  renderStats();
+  renderCharacters();
+  renderIssues();
+  renderTrash();
+  renderListPreview();
+  renderPendingImport();
+}
+
+function addHarem() {
+  const name = qs('#newHaremName').value.trim();
+  if (!name) return;
+  const harem = createEmptyHarem(name);
+  state.db.harems.push(harem);
+  state.db.meta.currentHaremId = harem.id;
+  qs('#newHaremName').value = '';
+  renderAll();
+}
+
+function renameCurrentHarem() {
+  const harem = currentHarem();
+  const name = qs('#newHaremName').value.trim();
+  if (!harem || !name) return;
+  harem.name = name;
+  harem.ownerName = name;
+  qs('#newHaremName').value = '';
+  renderAll();
 }
 
 function bindEvents() {
   qs('#saveBtn').addEventListener('click', () => saveDb(true));
   qs('#backupBtn').addEventListener('click', createBackup);
   qs('#reloadBtn').addEventListener('click', loadDb);
+  qs('#haremSelect').addEventListener('change', (event) => {
+    state.db.meta.currentHaremId = event.target.value;
+    state.selected.clear();
+    renderAll();
+  });
+  qs('#addHaremBtn').addEventListener('click', addHarem);
+  qs('#renameHaremBtn').addEventListener('click', renameCurrentHarem);
 
-  qs('#importMergeBtn').addEventListener('click', () => {
-    const parsed = parseMixedImport(qs('#importInput').value);
-    importIntoDb(parsed, false);
-    renderAll();
-    qs('#importSummary').textContent = `Importados/atualizados: ${parsed.characters.length}. Avisos/erros: ${parsed.issues.length}.`;
-  });
-  qs('#importReplaceBtn').addEventListener('click', () => {
-    const parsed = parseMixedImport(qs('#importInput').value);
-    importIntoDb(parsed, true);
-    renderAll();
-    qs('#importSummary').textContent = `Banco substituído. Personagens: ${parsed.characters.length}. Avisos/erros: ${parsed.issues.length}.`;
-  });
+  qs('#importMergeBtn').addEventListener('click', () => analyzeImport(false));
+  qs('#importReplaceBtn').addEventListener('click', () => analyzeImport(true));
+  qs('#applyNewBtn').addEventListener('click', () => applyPendingImport({ includeNew: true, includeDuplicates: false }));
+  qs('#applyAllDupBtn').addEventListener('click', () => applyPendingImport({ includeNew: false, includeDuplicates: true }));
+  qs('#applyEverythingBtn').addEventListener('click', () => applyPendingImport({ includeNew: true, includeDuplicates: true }));
   qs('#clearImportBtn').addEventListener('click', () => {
     qs('#importInput').value = '';
     qs('#importSummary').textContent = '';
+    state.pendingImport = null;
+    renderPendingImport();
   });
 
   qs('#genSortBtn').addEventListener('click', () => {
-    const ordered = [...state.db.characters].sort((a,b)=>a.position-b.position).map((c) => c.name);
+    const harem = currentHarem();
+    const ordered = [...harem.characters].sort((a, b) => a.position - b.position).map((c) => c.name);
     setCommandOutput(chunkCommand('$sm ', ordered));
   });
   qs('#genDivorceBtn').addEventListener('click', () => {
-    const names = state.db.characters.filter((c) => c.divorce).map((c) => c.name);
+    const harem = currentHarem();
+    const names = harem.characters.filter((c) => c.divorce).map((c) => c.name);
     setCommandOutput(names.length ? chunkCommand('$divorce ', names) : '');
   });
   qs('#genDivorceAllButBtn').addEventListener('click', () => {
-    const names = state.db.characters.filter((c) => !c.divorce).map((c) => c.name);
+    const harem = currentHarem();
+    const names = harem.characters.filter((c) => !c.divorce).map((c) => c.name);
     setCommandOutput(names.length ? chunkCommand('$divorceallbut ', names) : '$divorceall');
   });
 
   qs('#removeDivorcedBtn').addEventListener('click', () => {
-    const before = state.db.characters.length;
-    state.db.characters = state.db.characters.filter((c) => !c.divorce).map((character,index)=>({ ...character, position:index+1 }));
+    const harem = currentHarem();
+    const before = harem.characters.length;
+    harem.characters = harem.characters.filter((c) => !c.divorce).map((character, index) => ({ ...character, position: index + 1 }));
     state.selected.clear();
     renderAll();
-    setCommandOutput(`${before - state.db.characters.length} personagem(ns) removidos do banco.`);
+    setCommandOutput(`${before - harem.characters.length} personagem(ns) removidos do banco.`);
   });
 
   qs('#trashDivorcedBtn').addEventListener('click', () => {
-    const toTrash = state.db.characters.filter((c) => c.divorce);
+    const harem = currentHarem();
+    const toTrash = harem.characters.filter((c) => c.divorce);
     if (!toTrash.length) return;
-    state.db.trash.unshift(...toTrash.map((c) => ({ ...c, trashedAt: new Date().toISOString() })));
-    state.db.characters = state.db.characters.filter((c) => !c.divorce).map((character,index)=>({ ...character, position:index+1 }));
+    harem.trash.unshift(...toTrash.map((c) => ({ ...c, trashedAt: new Date().toISOString() })));
+    harem.characters = harem.characters.filter((c) => !c.divorce).map((character, index) => ({ ...character, position: index + 1 }));
     state.selected.clear();
     renderAll();
     setCommandOutput(`${toTrash.length} personagem(ns) movidos para a lixeira.`);
@@ -856,7 +1002,8 @@ function bindEvents() {
 
   qs('#emptyTrashBtn').addEventListener('click', () => {
     if (!confirm('Esvaziar a lixeira?')) return;
-    state.db.trash = [];
+    const harem = currentHarem();
+    harem.trash = [];
     renderTrash();
     renderStats();
   });
@@ -869,14 +1016,15 @@ function bindEvents() {
   }));
 
   qs('#importListBtn').addEventListener('click', () => {
+    const harem = currentHarem();
     const names = parseNamesOnly(qs('#listInput').value);
-    const merged = [...new Set([...(state.db.lists[state.activeList] || []), ...names])].sort((a,b)=>a.localeCompare(b,'pt-BR'));
-    state.db.lists[state.activeList] = merged;
+    const merged = [...new Set([...(harem.lists[state.activeList] || []), ...names])].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    harem.lists[state.activeList] = merged;
     renderListPreview();
   });
   qs('#clearListBtn').addEventListener('click', () => { qs('#listInput').value = ''; });
 
-  ['#searchInput','#seriesFilter','#statusFilter','#sortFilter'].forEach((sel) => {
+  ['#searchInput', '#seriesFilter', '#statusFilter', '#sortFilter'].forEach((sel) => {
     qs(sel).addEventListener('input', renderAll);
     qs(sel).addEventListener('change', renderAll);
   });
@@ -890,47 +1038,25 @@ function bindEvents() {
     renderCharacters();
   });
   qs('#markDivorceBtn').addEventListener('click', () => {
-    state.db.characters.forEach((character) => { if (state.selected.has(character.id)) character.divorce = true; });
+    const harem = currentHarem();
+    harem.characters.forEach((character) => { if (state.selected.has(character.id)) character.divorce = true; });
     renderAll();
   });
   qs('#unmarkDivorceBtn').addEventListener('click', () => {
-    state.db.characters.forEach((character) => { if (state.selected.has(character.id)) character.divorce = false; });
+    const harem = currentHarem();
+    harem.characters.forEach((character) => { if (state.selected.has(character.id)) character.divorce = false; });
     renderAll();
   });
 
   qs('#refreshBackupsBtn').addEventListener('click', loadBackups);
-
   qs('#closeModalBtn').addEventListener('click', closeModal);
   qs('#modalOverlay').addEventListener('click', (event) => { if (event.target.id === 'modalOverlay') closeModal(); });
   qs('#editImageUrl').addEventListener('input', updateModalPreview);
   qs('#applySingleImportBtn').addEventListener('click', applySingleImportToModal);
   qs('#clearSingleImportBtn').addEventListener('click', () => { qs('#editImportText').value = ''; });
   qs('#saveCharacterBtn').addEventListener('click', saveModalCharacter);
-  qs('#trashCharacterBtn').addEventListener('click', () => {
-    if (!state.modalId) return;
-    moveCharacterToTrash(state.modalId);
-    closeModal();
-  });
-  qs('#deleteCharacterBtn').addEventListener('click', () => {
-    if (!state.modalId) return;
-    deleteCharacter(state.modalId);
-  });
-}
-
-function chunkCommand(prefix, names) {
-  const chunks = [];
-  let current = prefix;
-  names.forEach((name) => {
-    const token = (current === prefix ? '' : ' $ ') + name;
-    if ((current + token).length > 1800) {
-      chunks.push(current);
-      current = prefix + name;
-    } else {
-      current += token;
-    }
-  });
-  if (current.trim()) chunks.push(current);
-  return chunks.join('\n\n');
+  qs('#trashCharacterBtn').addEventListener('click', () => { if (state.modalId) { moveCharacterToTrash(state.modalId); closeModal(); } });
+  qs('#deleteCharacterBtn').addEventListener('click', () => { if (state.modalId) deleteCharacter(state.modalId); });
 }
 
 document.addEventListener('DOMContentLoaded', async () => {

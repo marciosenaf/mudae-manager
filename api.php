@@ -26,10 +26,8 @@ $action = $_GET['action'] ?? 'load';
 
 if (!file_exists($dbFile)) {
     file_put_contents($dbFile, json_encode([
-        'meta' => ['updatedAt' => '', 'version' => 1],
-        'characters' => [],
-        'trash' => [],
-        'lists' => ['wishlist' => [], 'likelist' => [], 'whitelist' => [], 'blacklist' => []]
+        'meta' => ['updatedAt' => '', 'version' => 2, 'currentHaremId' => ''],
+        'harems' => []
     ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
 }
 

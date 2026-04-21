@@ -1,5 +1,4 @@
-<?php
-?><!DOCTYPE html>
+<?php ?><!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
@@ -12,7 +11,7 @@
     <header class="panel hero">
       <div>
         <h1>Mudae Manager</h1>
-        <p>Gerenciador local para XAMPP com banco JSON, backups, importação de dumps, listas e editor individual.</p>
+        <p>Gerenciador local para XAMPP com banco JSON, backups, importação de dumps, comparação de duplicados e múltiplos haréns.</p>
       </div>
       <div class="hero-actions">
         <button id="saveBtn" class="primary">Salvar no servidor</button>
@@ -21,13 +20,23 @@
       </div>
     </header>
 
+    <section class="panel">
+      <div class="row wrap align-center">
+        <select id="haremSelect"></select>
+        <input id="newHaremName" type="text" placeholder="Nome do dono / harém">
+        <button id="addHaremBtn" class="primary">Novo harém</button>
+        <button id="renameHaremBtn">Renomear atual</button>
+      </div>
+      <div id="currentHaremInfo" class="muted small"></div>
+    </section>
+
     <section class="grid two">
       <div class="panel">
         <h2>Importar dump</h2>
         <textarea id="importInput" rows="14" placeholder="Cole aqui $mmarks, $mmarksi, $ims, $im, blocos mistos..."></textarea>
         <div class="row wrap">
-          <button id="importMergeBtn" class="primary">Importar e mesclar</button>
-          <button id="importReplaceBtn">Substituir banco</button>
+          <button id="importMergeBtn" class="primary">Analisar e mesclar</button>
+          <button id="importReplaceBtn">Analisar e substituir harém atual</button>
           <button id="clearImportBtn">Limpar texto</button>
         </div>
         <div id="importSummary" class="muted small"></div>
@@ -47,6 +56,19 @@
           <button id="emptyTrashBtn">Esvaziar lixeira</button>
         </div>
       </div>
+    </section>
+
+    <section class="panel">
+      <div class="row space-between align-center">
+        <h2>Duplicados encontrados na importação</h2>
+        <div id="duplicatesSummary" class="muted small"></div>
+      </div>
+      <div class="row wrap">
+        <button id="applyNewBtn" class="primary">Importar só os novos</button>
+        <button id="applyAllDupBtn">Atualizar todos os repetidos</button>
+        <button id="applyEverythingBtn">Importar novos + atualizar repetidos</button>
+      </div>
+      <div id="duplicatesList" class="issues"></div>
     </section>
 
     <section class="grid four stats">
@@ -103,9 +125,7 @@
 
       <div class="panel">
         <h2>Backups</h2>
-        <div class="row wrap">
-          <button id="refreshBackupsBtn">Atualizar lista</button>
-        </div>
+        <div class="row wrap"><button id="refreshBackupsBtn">Atualizar lista</button></div>
         <div id="backupsList" class="backup-list"></div>
       </div>
     </section>
@@ -119,18 +139,7 @@
         <table>
           <thead>
             <tr>
-              <th></th>
-              <th>Drag</th>
-              <th>Pos</th>
-              <th>Preview</th>
-              <th>Nome</th>
-              <th>Série</th>
-              <th>Claim</th>
-              <th>Like</th>
-              <th>Kakera</th>
-              <th>Listas</th>
-              <th>Divórcio</th>
-              <th>Ações</th>
+              <th></th><th>Drag</th><th>Pos</th><th>Preview</th><th>Nome</th><th>Série</th><th>Claim</th><th>Like</th><th>Kakera</th><th>Listas</th><th>Divórcio</th><th>Ações</th>
             </tr>
           </thead>
           <tbody id="charactersBody"></tbody>
@@ -152,39 +161,24 @@
 
   <div id="modalOverlay" class="modal-overlay hidden">
     <div class="modal">
-      <div class="row space-between align-center">
-        <h3 id="modalTitle">Editar personagem</h3>
-        <button id="closeModalBtn">Fechar</button>
-      </div>
+      <div class="row space-between align-center"><h3 id="modalTitle">Editar personagem</h3><button id="closeModalBtn">Fechar</button></div>
       <div class="grid two modal-grid">
         <div>
-          <label>Nome</label>
-          <input id="editName" type="text">
-          <label>Série</label>
-          <input id="editSeries" type="text">
-          <label>Rank claim</label>
-          <input id="editRank" type="number">
-          <label>Rank like</label>
-          <input id="editLikeRank" type="number">
-          <label>Kakera</label>
-          <input id="editKakera" type="number">
-          <label>Posição</label>
-          <input id="editPosition" type="number">
-          <label>Owner</label>
-          <input id="editOwner" type="text">
-          <label>Nota</label>
-          <textarea id="editNote" rows="4"></textarea>
+          <label>Nome</label><input id="editName" type="text">
+          <label>Série</label><input id="editSeries" type="text">
+          <label>Rank claim</label><input id="editRank" type="number">
+          <label>Rank like</label><input id="editLikeRank" type="number">
+          <label>Kakera</label><input id="editKakera" type="number">
+          <label>Posição</label><input id="editPosition" type="number">
+          <label>Owner</label><input id="editOwner" type="text">
+          <label>Nota</label><textarea id="editNote" rows="4"></textarea>
         </div>
         <div>
-          <label>Imagem URL</label>
-          <input id="editImageUrl" type="text">
-          <div class="preview-box"><img id="editPreview" alt="" /></div>
+          <label>Imagem URL</label><input id="editImageUrl" type="text">
+          <div class="preview-box"><img id="editPreview" alt=""></div>
           <label>Atualização individual</label>
           <textarea id="editImportText" rows="10" placeholder="Cole aqui a resposta de $im Nome ou $ims Nome"></textarea>
-          <div class="row wrap">
-            <button id="applySingleImportBtn">Aplicar texto ao personagem</button>
-            <button id="clearSingleImportBtn">Limpar texto</button>
-          </div>
+          <div class="row wrap"><button id="applySingleImportBtn">Aplicar texto ao personagem</button><button id="clearSingleImportBtn">Limpar texto</button></div>
           <div class="row wrap checkbox-row">
             <label><input id="editWishlist" type="checkbox"> Wishlist</label>
             <label><input id="editLikelist" type="checkbox"> Likelist</label>
@@ -194,11 +188,7 @@
           </div>
         </div>
       </div>
-      <div class="row wrap">
-        <button id="saveCharacterBtn" class="primary">Salvar personagem</button>
-        <button id="trashCharacterBtn">Mover pra lixeira</button>
-        <button id="deleteCharacterBtn" class="danger">Remover do banco</button>
-      </div>
+      <div class="row wrap"><button id="saveCharacterBtn" class="primary">Salvar personagem</button><button id="trashCharacterBtn">Mover pra lixeira</button><button id="deleteCharacterBtn" class="danger">Remover do banco</button></div>
     </div>
   </div>
 
