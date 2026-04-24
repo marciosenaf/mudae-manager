@@ -569,3 +569,12 @@ input[type="checkbox"] {
 .panel, .hero, .stat-card {
   animation: fadeIn 0.4s ease-out;
 }
+
+.opcao-mesclar {
+margin-bottom: 20px;
+}
+
+.style-input{
+margin: 20px 0px 5px 0px;
+}
+

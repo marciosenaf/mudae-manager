@@ -37,14 +37,13 @@
         <textarea id="rawInput" class="big-text" placeholder="Cole aqui a saída do $mmarks / $mmarksi / $mms ou um bloco individual como o do $ims"></textarea>
         
         <div class="row gap">
-          <select id="importMode">
+          <select class="opcao-mesclar" id="importMode">
             <option value="merge">🔀 Mesclar no banco</option>
             <option value="replace">🔄 Substituir banco</option>
           </select>
-          <button id="btnImport" class="primary">📥 Importar / Atualizar</button>
         </div>
-        
         <div class="row gap">
+          <button id="btnImport" class="primary">📥 Importar / Atualizar</button>
           <button id="btnExampleIms" class="secondary">📋 Exemplo $ims</button>
           <button id="btnExportJson" class="secondary">📤 Exportar JSON</button>
           <button id="btnImportJson" class="secondary">📂 Importar JSON</button>
@@ -60,12 +59,12 @@
         <div class="row gap">
           <button id="btnGenerateSm" class="primary">✨ Gerar $sm com selecionados</button>
           <button id="btnGenerateDivorce" class="danger">💔 Gerar $divorce dos marcados</button>
-        </div>
-        <div class="row gap">
           <button id="btnGenerateDivorceAllBut" class="secondary">📌 Gerar $divorceallbut dos mantidos</button>
           <button id="btnGenerateSmSeries" class="success">📺 Gerar $sm series das séries selecionadas</button>
+        
         </div>
-        <input id="startRef" type="text" placeholder="🎯 Opcional: personagem de referência para usar com $smpos">
+        
+        <input class="style-input" id="startRef" type="text" placeholder="🎯 Opcional: personagem de referência para usar com $smpos">
         <textarea id="commandOutput" class="medium-text" placeholder="💬 Os comandos gerados aparecem aqui" readonly></textarea>
       </div>
     </div>
