@@ -133,7 +133,7 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
   gap: 24px;
-  margin-bottom: 24px;
+  margin: 24px 0 24px 0;
 }
 
 /* PANELS */
@@ -578,3 +578,6 @@ margin-bottom: 20px;
 margin: 20px 0px 5px 0px;
 }
 
+.grow{
+  margin-bottom: 10px;
+}
