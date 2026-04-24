@@ -2,154 +2,201 @@
 <html lang="pt-br">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mudae Manager Full</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Mudae Manager | Organize seu harém</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="app-shell">
     <header class="hero">
-      <h1>Mudae Manager</h1>
+      <h1>✨ Mudae Manager</h1>
       <p>Importe dumps do Mudae, organize seu harém e gere comandos prontos.</p>
       <div class="stats-grid">
-        <div class="stat-card"><span>Personagens</span><strong id="statTotalChars">0</strong></div>
-        <div class="stat-card"><span>Kakera total</span><strong id="statTotalKakera">0</strong></div>
-        <div class="stat-card"><span>Média de kakera</span><strong id="statAvgKakera">0</strong></div>
-        <div class="stat-card"><span>Marcados p/ divórcio</span><strong id="statMarkedDivorce">0</strong></div>
+        <div class="stat-card">
+          <span>👥 Personagens</span>
+          <strong id="statTotalChars">0</strong>
+        </div>
+        <div class="stat-card">
+          <span>💎 Kakera total</span>
+          <strong id="statTotalKakera">0</strong>
+        </div>
+        <div class="stat-card">
+          <span>📊 Média de kakera</span>
+          <strong id="statAvgKakera">0</strong>
+        </div>
+        <div class="stat-card">
+          <span>⚠️ Marcados p/ divórcio</span>
+          <strong id="statMarkedDivorce">0</strong>
+        </div>
       </div>
     </header>
 
-    <section class="two-col">
+    <div class="two-col">
       <div class="panel">
-        <h2>Importação</h2>
+        <h2>📥 Importação</h2>
         <textarea id="rawInput" class="big-text" placeholder="Cole aqui a saída do $mmarks / $mmarksi / $mms ou um bloco individual como o do $ims"></textarea>
-        <div class="row wrap">
+        
+        <div class="row gap">
           <select id="importMode">
-            <option value="merge">Mesclar no banco</option>
-            <option value="replace">Substituir banco</option>
+            <option value="merge">🔀 Mesclar no banco</option>
+            <option value="replace">🔄 Substituir banco</option>
           </select>
-          <button id="btnImport">Importar / Atualizar</button>
-          <button id="btnExampleIms" class="secondary">Exemplo $ims</button>
-          <button id="btnExportJson" class="secondary">Exportar JSON</button>
-          <button id="btnImportJson" class="secondary">Importar JSON</button>
-          <input id="jsonFileInput" type="file" accept="application/json" hidden>
-          <button id="btnClear" class="danger">Limpar banco local</button>
+          <button id="btnImport" class="primary">📥 Importar / Atualizar</button>
         </div>
+        
+        <div class="row gap">
+          <button id="btnExampleIms" class="secondary">📋 Exemplo $ims</button>
+          <button id="btnExportJson" class="secondary">📤 Exportar JSON</button>
+          <button id="btnImportJson" class="secondary">📂 Importar JSON</button>
+          <input id="jsonFileInput" type="file" accept="application/json" hidden>
+          <button id="btnClear" class="danger">🗑️ Limpar banco local</button>
+        </div>
+        
         <div id="lastImportSummary" class="summary-box hidden"></div>
       </div>
 
       <div class="panel">
-        <h2>Gerador de comandos</h2>
-        <div class="grid-2">
-          <button id="btnGenerateSm">Gerar $sm com selecionados</button>
-          <button id="btnGenerateDivorce" class="danger">Gerar $divorce dos marcados</button>
-          <button id="btnGenerateDivorceAllBut" class="warn">Gerar $divorceallbut dos mantidos</button>
-          <button id="btnGenerateSmSeries" class="success">Gerar $sm series das séries selecionadas</button>
+        <h2>⚡ Gerador de comandos</h2>
+        <div class="row gap">
+          <button id="btnGenerateSm" class="primary">✨ Gerar $sm com selecionados</button>
+          <button id="btnGenerateDivorce" class="danger">💔 Gerar $divorce dos marcados</button>
         </div>
-        <input id="startRef" type="text" placeholder="Opcional: personagem de referência para usar com $smpos">
-        <textarea id="commandOutput" class="medium-text" placeholder="Os comandos gerados aparecem aqui"></textarea>
+        <div class="row gap">
+          <button id="btnGenerateDivorceAllBut" class="secondary">📌 Gerar $divorceallbut dos mantidos</button>
+          <button id="btnGenerateSmSeries" class="success">📺 Gerar $sm series das séries selecionadas</button>
+        </div>
+        <input id="startRef" type="text" placeholder="🎯 Opcional: personagem de referência para usar com $smpos">
+        <textarea id="commandOutput" class="medium-text" placeholder="💬 Os comandos gerados aparecem aqui" readonly></textarea>
       </div>
-    </section>
+    </div>
 
-    <section class="panel">
-      <div class="row wrap gap">
+    <div class="panel">
+      <h2>🔍 Filtros e busca</h2>
+      <div class="row gap">
         <input id="query" class="grow" type="text" placeholder="Pesquisar por nome, série, nota, rank, kakera, owner...">
-        <select id="seriesFilter"></select>
+      </div>
+      
+      <div class="row gap">
+        <select id="seriesFilter">
+          <option value="all">📺 Todas as séries</option>
+        </select>
         <select id="priorityFilter">
-          <option value="all">Todas prioridades</option>
-          <option value="high">Alta</option>
-          <option value="normal">Normal</option>
-          <option value="low">Baixa</option>
+          <option value="all">🎯 Todas prioridades</option>
+          <option value="high">🔴 Alta</option>
+          <option value="normal">🟡 Normal</option>
+          <option value="low">🟢 Baixa</option>
         </select>
         <select id="divorceFilter">
-          <option value="all">Divórcio: todos</option>
-          <option value="yes">Só marcados</option>
-          <option value="no">Só mantidos</option>
+          <option value="all">⚖️ Divórcio: todos</option>
+          <option value="yes">💔 Só marcados</option>
+          <option value="no">❤️ Só mantidos</option>
         </select>
         <select id="sortKey">
-          <option value="position">Posição</option>
-          <option value="name">Nome</option>
-          <option value="series">Série</option>
-          <option value="rank">Rank claim</option>
-          <option value="likeRank">Rank like</option>
-          <option value="kakera">Kakera</option>
-          <option value="priority">Prioridade</option>
+          <option value="position">📌 Posição</option>
+          <option value="name">🔤 Nome</option>
+          <option value="series">📺 Série</option>
+          <option value="rank">🏆 Rank claim</option>
+          <option value="likeRank">❤️ Rank like</option>
+          <option value="kakera">💎 Kakera</option>
+          <option value="priority">🎯 Prioridade</option>
         </select>
         <select id="sortDirection">
-          <option value="asc">Crescente</option>
-          <option value="desc">Decrescente</option>
+          <option value="asc">⬆️ Crescente</option>
+          <option value="desc">⬇️ Decrescente</option>
         </select>
       </div>
 
-      <div class="row wrap gap top-space">
-        <button id="btnSelectFiltered" class="secondary">Selecionar filtrados</button>
-        <button id="btnClearSelection" class="secondary">Limpar seleção</button>
-        <button id="btnMarkDivorce" class="danger">Marcar divórcio</button>
-        <button id="btnUnmarkDivorce" class="success">Desmarcar divórcio</button>
-        <button id="btnPriorityHigh" class="secondary">Prioridade alta</button>
-        <button id="btnRemoveDivorced" class="warn">Apagar divorciados do banco</button>
+      <div class="row gap top-space">
+        <button id="btnSelectFiltered" class="secondary">✅ Selecionar filtrados</button>
+        <button id="btnClearSelection" class="secondary">🗑️ Limpar seleção</button>
+        <button id="btnMarkDivorce" class="danger">⚠️ Marcar divórcio</button>
+        <button id="btnUnmarkDivorce" class="success">❤️ Desmarcar divórcio</button>
+        <button id="btnPriorityHigh" class="secondary">⭐ Prioridade alta</button>
+        <button id="btnRemoveDivorced" class="warning">🗑️ Apagar divorciados do banco</button>
       </div>
 
       <div class="hint-box">
-        Arraste uma linha pela coluna <strong>Drag</strong> para reordenar quando a ordenação estiver em <strong>Posição</strong>.
+        💡 <strong>Dica:</strong> Arraste uma linha pela coluna <strong>Drag</strong> para reordenar quando a ordenação estiver em <strong>Posição</strong>.
       </div>
 
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Sel</th>
-              <th>Drag</th>
-              <th>Pos</th>
-              <th>Preview</th>
-              <th>Nome</th>
-              <th>Série</th>
-              <th>Claim</th>
-              <th>Like</th>
-              <th>Kakera</th>
-              <th>Prioridade</th>
-              <th>Divórcio</th>
-              <th>Nota</th>
+              <th>✅ Sel</th>
+              <th>🎯 Drag</th>
+              <th>📌 Pos</th>
+              <th>🖼️ Preview</th>
+              <th>📝 Nome</th>
+              <th>📺 Série</th>
+              <th>🏆 Claim</th>
+              <th>❤️ Like</th>
+              <th>💎 Kakera</th>
+              <th>⭐ Prioridade</th>
+              <th>⚠️ Divórcio</th>
+              <th>📝 Nota</th>
             </tr>
           </thead>
           <tbody id="charactersTableBody"></tbody>
         </table>
       </div>
-    </section>
+    </div>
 
-    <section class="two-col">
+    <div class="two-col">
       <div class="panel">
-        <h2>Erros e avisos de importação</h2>
+        <h2>⚠️ Erros e avisos de importação</h2>
         <div id="issuesContainer" class="stack"></div>
       </div>
+      
       <div class="panel">
-        <h2>Autotestes internos</h2>
-        <div class="row wrap gap">
-          <div id="testsSummary"></div>
+        <h2>🧪 Autotestes internos</h2>
+        <div class="row gap">
+          <div id="testsSummary" class="muted"></div>
           <div id="divorceSummary" class="muted"></div>
-          <button id="btnRunTests" class="secondary">Rodar testes de novo</button>
+          <button id="btnRunTests" class="secondary">▶️ Rodar testes de novo</button>
         </div>
         <div id="testsContainer" class="stack top-space"></div>
       </div>
-    </section>
+    </div>
 
-    <section class="two-col">
+    <div class="two-col">
       <div class="panel">
-        <h2>JSON atual</h2>
-        <pre id="jsonPreview" class="json-view"></pre>
+        <h2>📄 JSON atual</h2>
+        <pre id="jsonPreview" class="json-view">{
+  "characters": []
+}</pre>
       </div>
+      
       <div class="panel">
-        <h2>Comandos e fluxo sugerido</h2>
+        <h2>💡 Comandos e fluxo sugerido</h2>
         <div class="tips-grid">
-          <div class="tip"><strong>Harém completo</strong><span>Use $mmarks, $mmarksi ou outro dump que gere rank, nome, kakera e idealmente link da imagem.</span></div>
-          <div class="tip"><strong>Importação individual</strong><span>Use $ims Nome do Personagem para completar dados avulsos como rank de like, owner e informações faltantes.</span></div>
-          <div class="tip"><strong>Ordenação</strong><span>Com ordenação por posição, arraste as linhas e depois gere o comando $sm ou $smpos.</span></div>
-          <div class="tip"><strong>Depuração</strong><span>Se um bloco falhar, o painel de erros mostra o que não foi entendido e em qual linha.</span></div>
-          <div class="tip"><strong>Divórcio</strong><span>O botão de gerar comando de divórcio usa todos os personagens marcados com divórcio, mesmo que não estejam selecionados.</span></div>
-          <div class="tip"><strong>Limpeza local</strong><span>Depois de divorciar no Discord, use “Apagar divorciados do banco” para remover esses personagens só do gerenciador.</span></div>
+          <div class="tip">
+            <strong>📦 Harém completo</strong>
+            <span>Use $mmarks, $mmarksi ou outro dump que gere rank, nome, kakera e idealmente link da imagem.</span>
+          </div>
+          <div class="tip">
+            <strong>📝 Importação individual</strong>
+            <span>Use $ims Nome do Personagem para completar dados avulsos como rank de like, owner e informações faltantes.</span>
+          </div>
+          <div class="tip">
+            <strong>🔄 Ordenação</strong>
+            <span>Com ordenação por posição, arraste as linhas e depois gere o comando $sm ou $smpos.</span>
+          </div>
+          <div class="tip">
+            <strong>🐛 Depuração</strong>
+            <span>Se um bloco falhar, o painel de erros mostra o que não foi entendido e em qual linha.</span>
+          </div>
+          <div class="tip">
+            <strong>💔 Divórcio</strong>
+            <span>O botão de gerar comando de divórcio usa todos os personagens marcados com divórcio, mesmo que não estejam selecionados.</span>
+          </div>
+          <div class="tip">
+            <strong>🧹 Limpeza local</strong>
+            <span>Depois de divorciar no Discord, use "Apagar divorciados do banco" para remover esses personagens só do gerenciador.</span>
+          </div>
         </div>
       </div>
-    </section>
+    </div>
   </div>
 
   <script src="app.js"></script>
